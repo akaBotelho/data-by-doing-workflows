@@ -1,0 +1,62 @@
+name: Data by Doing stage 1
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage-1-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stage-1:
+    name: Stage 1 verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+
+    steps:
+      - name: Check out learner repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: learner
+          persist-credentials: false
+
+      - name: Check out controlled tests
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: akaBotelho/data-by-doing-workflows
+          ref: 7d864e0b3965e90f70d221732c9f4d2a589ab65e
+          path: verification
+          sparse-checkout: stages/stage-1/tests
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.30"
+          enable-cache: true
+          prune-cache: false
+
+      - name: Install Python
+        working-directory: learner
+        run: uv python install
+
+      - name: Sync locked dependencies
+        working-directory: learner
+        run: uv sync --locked --all-groups
+
+      - name: Run controlled stage 1 tests
+        working-directory: learner
+        env:
+          DATA_BY_DOING_LEARNER_PROJECT: ${{ github.workspace }}/learner
+          PYTHONPATH: ${{ github.workspace }}/learner/src
+        run: >-
+          uv run --locked pytest
+          ${{ github.workspace }}/verification/stages/stage-1/tests
+
+      - name: Validate dbt configuration
+        if: ${{ !cancelled() }}
+        working-directory: learner
+        run: uv run --locked dbt debug --project-dir . --profiles-dir .
